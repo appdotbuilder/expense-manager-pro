@@ -1,14 +1,9 @@
 import { z } from 'zod';
 
-// Enum definitions
+// User Management Schemas
 export const userRoleEnum = z.enum(['admin', 'manager', 'user']);
-export const expenseStatusEnum = z.enum(['pending', 'approved', 'rejected']);
-export const notificationTypeEnum = z.enum(['budget_alert', 'approval_request', 'expense_reminder', 'system_update']);
-export const recurringFrequencyEnum = z.enum(['daily', 'weekly', 'monthly', 'yearly']);
-export const reportTypeEnum = z.enum(['monthly', 'yearly', 'custom']);
-export const exportFormatEnum = z.enum(['pdf', 'excel', 'csv']);
+export type UserRole = z.infer<typeof userRoleEnum>;
 
-// User schema
 export const userSchema = z.object({
   id: z.number(),
   email: z.string().email(),
@@ -18,15 +13,13 @@ export const userSchema = z.object({
   role: userRoleEnum,
   is_active: z.boolean(),
   email_verified: z.boolean(),
-  reset_token: z.string().nullable(),
-  reset_token_expires: z.coerce.date().nullable(),
+  avatar_url: z.string().nullable(),
   created_at: z.coerce.date(),
   updated_at: z.coerce.date()
 });
 
 export type User = z.infer<typeof userSchema>;
 
-// User input schemas
 export const createUserInputSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8),
@@ -44,43 +37,69 @@ export const loginInputSchema = z.object({
 
 export type LoginInput = z.infer<typeof loginInputSchema>;
 
-export const updateUserInputSchema = z.object({
-  id: z.number(),
-  email: z.string().email().optional(),
-  first_name: z.string().optional(),
-  last_name: z.string().optional(),
-  role: userRoleEnum.optional(),
-  is_active: z.boolean().optional()
+export const resetPasswordInputSchema = z.object({
+  email: z.string().email()
 });
 
-export type UpdateUserInput = z.infer<typeof updateUserInputSchema>;
+export type ResetPasswordInput = z.infer<typeof resetPasswordInputSchema>;
 
-// Expense category schema
-export const expenseCategorySchema = z.object({
+// Team Management Schemas
+export const teamSchema = z.object({
+  id: z.number(),
+  name: z.string(),
+  description: z.string().nullable(),
+  manager_id: z.number(),
+  created_at: z.coerce.date(),
+  updated_at: z.coerce.date()
+});
+
+export type Team = z.infer<typeof teamSchema>;
+
+export const createTeamInputSchema = z.object({
+  name: z.string().min(1),
+  description: z.string().nullable().optional(),
+  manager_id: z.number()
+});
+
+export type CreateTeamInput = z.infer<typeof createTeamInputSchema>;
+
+export const teamMemberSchema = z.object({
+  id: z.number(),
+  team_id: z.number(),
+  user_id: z.number(),
+  joined_at: z.coerce.date()
+});
+
+export type TeamMember = z.infer<typeof teamMemberSchema>;
+
+// Category Schemas
+export const categorySchema = z.object({
   id: z.number(),
   name: z.string(),
   description: z.string().nullable(),
   color: z.string(),
   icon: z.string().nullable(),
+  parent_id: z.number().nullable(),
   is_active: z.boolean(),
-  created_by: z.number(),
-  created_at: z.coerce.date(),
-  updated_at: z.coerce.date()
+  created_at: z.coerce.date()
 });
 
-export type ExpenseCategory = z.infer<typeof expenseCategorySchema>;
+export type Category = z.infer<typeof categorySchema>;
 
-export const createExpenseCategoryInputSchema = z.object({
+export const createCategoryInputSchema = z.object({
   name: z.string().min(1),
-  description: z.string().nullable(),
-  color: z.string().regex(/^#[0-9A-F]{6}$/i),
-  icon: z.string().nullable(),
-  created_by: z.number()
+  description: z.string().nullable().optional(),
+  color: z.string().default('#8B5CF6'),
+  icon: z.string().nullable().optional(),
+  parent_id: z.number().nullable().optional()
 });
 
-export type CreateExpenseCategoryInput = z.infer<typeof createExpenseCategoryInputSchema>;
+export type CreateCategoryInput = z.infer<typeof createCategoryInputSchema>;
 
-// Expense schema
+// Expense Schemas
+export const expenseStatusEnum = z.enum(['draft', 'pending', 'approved', 'rejected', 'paid']);
+export type ExpenseStatus = z.infer<typeof expenseStatusEnum>;
+
 export const expenseSchema = z.object({
   id: z.number(),
   user_id: z.number(),
@@ -89,14 +108,14 @@ export const expenseSchema = z.object({
   description: z.string(),
   expense_date: z.coerce.date(),
   receipt_url: z.string().nullable(),
-  tags: z.string().nullable(),
+  tags: z.array(z.string()),
   status: expenseStatusEnum,
   approved_by: z.number().nullable(),
   approved_at: z.coerce.date().nullable(),
   is_recurring: z.boolean(),
-  recurring_frequency: recurringFrequencyEnum.nullable(),
-  next_occurrence: z.coerce.date().nullable(),
+  recurring_pattern: z.string().nullable(),
   team_id: z.number().nullable(),
+  notes: z.string().nullable(),
   created_at: z.coerce.date(),
   updated_at: z.coerce.date()
 });
@@ -104,16 +123,16 @@ export const expenseSchema = z.object({
 export type Expense = z.infer<typeof expenseSchema>;
 
 export const createExpenseInputSchema = z.object({
-  user_id: z.number(),
   category_id: z.number(),
   amount: z.number().positive(),
   description: z.string().min(1),
   expense_date: z.coerce.date(),
-  receipt_url: z.string().url().nullable(),
-  tags: z.string().nullable(),
+  receipt_url: z.string().nullable().optional(),
+  tags: z.array(z.string()).default([]),
   is_recurring: z.boolean().default(false),
-  recurring_frequency: recurringFrequencyEnum.nullable(),
-  team_id: z.number().nullable()
+  recurring_pattern: z.string().nullable().optional(),
+  team_id: z.number().nullable().optional(),
+  notes: z.string().nullable().optional()
 });
 
 export type CreateExpenseInput = z.infer<typeof createExpenseInputSchema>;
@@ -122,24 +141,32 @@ export const updateExpenseInputSchema = z.object({
   id: z.number(),
   category_id: z.number().optional(),
   amount: z.number().positive().optional(),
-  description: z.string().optional(),
+  description: z.string().min(1).optional(),
   expense_date: z.coerce.date().optional(),
-  receipt_url: z.string().url().nullable().optional(),
-  tags: z.string().nullable().optional(),
-  status: expenseStatusEnum.optional(),
-  approved_by: z.number().nullable().optional()
+  receipt_url: z.string().nullable().optional(),
+  tags: z.array(z.string()).optional(),
+  notes: z.string().nullable().optional()
 });
 
 export type UpdateExpenseInput = z.infer<typeof updateExpenseInputSchema>;
 
-// Budget schema
+export const approveExpenseInputSchema = z.object({
+  expense_id: z.number(),
+  status: z.enum(['approved', 'rejected']),
+  notes: z.string().nullable().optional()
+});
+
+export type ApproveExpenseInput = z.infer<typeof approveExpenseInputSchema>;
+
+// Budget Schemas
 export const budgetSchema = z.object({
   id: z.number(),
   user_id: z.number(),
-  category_id: z.number(),
+  category_id: z.number().nullable(),
   amount: z.number(),
-  period_start: z.coerce.date(),
-  period_end: z.coerce.date(),
+  period: z.enum(['monthly', 'yearly']),
+  start_date: z.coerce.date(),
+  end_date: z.coerce.date(),
   alert_threshold: z.number(),
   is_active: z.boolean(),
   created_at: z.coerce.date(),
@@ -149,56 +176,73 @@ export const budgetSchema = z.object({
 export type Budget = z.infer<typeof budgetSchema>;
 
 export const createBudgetInputSchema = z.object({
-  user_id: z.number(),
-  category_id: z.number(),
+  category_id: z.number().nullable().optional(),
   amount: z.number().positive(),
-  period_start: z.coerce.date(),
-  period_end: z.coerce.date(),
+  period: z.enum(['monthly', 'yearly']),
+  start_date: z.coerce.date(),
+  end_date: z.coerce.date(),
   alert_threshold: z.number().min(0).max(100).default(80)
 });
 
 export type CreateBudgetInput = z.infer<typeof createBudgetInputSchema>;
 
-// Team schema
-export const teamSchema = z.object({
-  id: z.number(),
-  name: z.string(),
-  description: z.string().nullable(),
-  manager_id: z.number(),
-  is_active: z.boolean(),
-  created_at: z.coerce.date(),
-  updated_at: z.coerce.date()
+// Analytics & Reports Schemas
+export const expenseAnalyticsSchema = z.object({
+  total_amount: z.number(),
+  expense_count: z.number(),
+  avg_expense: z.number(),
+  category_breakdown: z.array(z.object({
+    category_name: z.string(),
+    amount: z.number(),
+    percentage: z.number()
+  })),
+  monthly_trend: z.array(z.object({
+    month: z.string(),
+    amount: z.number()
+  })),
+  budget_vs_actual: z.object({
+    budget_amount: z.number(),
+    actual_amount: z.number(),
+    variance: z.number(),
+    variance_percentage: z.number()
+  })
 });
 
-export type Team = z.infer<typeof teamSchema>;
+export type ExpenseAnalytics = z.infer<typeof expenseAnalyticsSchema>;
 
-export const createTeamInputSchema = z.object({
-  name: z.string().min(1),
-  description: z.string().nullable(),
-  manager_id: z.number()
+export const reportInputSchema = z.object({
+  start_date: z.coerce.date(),
+  end_date: z.coerce.date(),
+  category_ids: z.array(z.number()).optional(),
+  team_id: z.number().nullable().optional(),
+  format: z.enum(['pdf', 'excel', 'csv']).default('pdf')
 });
 
-export type CreateTeamInput = z.infer<typeof createTeamInputSchema>;
+export type ReportInput = z.infer<typeof reportInputSchema>;
 
-// Team member schema
-export const teamMemberSchema = z.object({
-  id: z.number(),
-  team_id: z.number(),
-  user_id: z.number(),
-  joined_at: z.coerce.date(),
-  is_active: z.boolean()
+// Search & Filter Schemas
+export const searchExpensesInputSchema = z.object({
+  query: z.string().optional(),
+  category_ids: z.array(z.number()).optional(),
+  start_date: z.coerce.date().optional(),
+  end_date: z.coerce.date().optional(),
+  min_amount: z.number().optional(),
+  max_amount: z.number().optional(),
+  tags: z.array(z.string()).optional(),
+  status: expenseStatusEnum.optional(),
+  team_id: z.number().nullable().optional(),
+  page: z.number().int().positive().default(1),
+  limit: z.number().int().positive().max(100).default(20),
+  sort_by: z.enum(['date', 'amount', 'category', 'created_at']).default('date'),
+  sort_order: z.enum(['asc', 'desc']).default('desc')
 });
 
-export type TeamMember = z.infer<typeof teamMemberSchema>;
+export type SearchExpensesInput = z.infer<typeof searchExpensesInputSchema>;
 
-export const addTeamMemberInputSchema = z.object({
-  team_id: z.number(),
-  user_id: z.number()
-});
+// Notification Schemas
+export const notificationTypeEnum = z.enum(['budget_alert', 'approval_request', 'expense_approved', 'expense_rejected', 'system_update']);
+export type NotificationType = z.infer<typeof notificationTypeEnum>;
 
-export type AddTeamMemberInput = z.infer<typeof addTeamMemberInputSchema>;
-
-// Notification schema
 export const notificationSchema = z.object({
   id: z.number(),
   user_id: z.number(),
@@ -206,7 +250,7 @@ export const notificationSchema = z.object({
   title: z.string(),
   message: z.string(),
   is_read: z.boolean(),
-  metadata: z.string().nullable(),
+  metadata: z.record(z.any()).nullable(),
   created_at: z.coerce.date()
 });
 
@@ -215,83 +259,35 @@ export type Notification = z.infer<typeof notificationSchema>;
 export const createNotificationInputSchema = z.object({
   user_id: z.number(),
   type: notificationTypeEnum,
-  title: z.string().min(1),
-  message: z.string().min(1),
-  metadata: z.string().nullable()
+  title: z.string(),
+  message: z.string(),
+  metadata: z.record(z.any()).nullable().optional()
 });
 
 export type CreateNotificationInput = z.infer<typeof createNotificationInputSchema>;
 
-// Report schema
-export const reportSchema = z.object({
-  id: z.number(),
-  user_id: z.number(),
-  type: reportTypeEnum,
-  title: z.string(),
-  filters: z.string().nullable(),
-  data: z.string().nullable(),
-  generated_at: z.coerce.date(),
-  expires_at: z.coerce.date().nullable()
-});
-
-export type Report = z.infer<typeof reportSchema>;
-
-export const generateReportInputSchema = z.object({
-  user_id: z.number(),
-  type: reportTypeEnum,
-  title: z.string().min(1),
-  date_from: z.coerce.date(),
-  date_to: z.coerce.date(),
-  category_ids: z.array(z.number()).optional(),
-  team_id: z.number().nullable(),
-  export_format: exportFormatEnum.default('pdf')
-});
-
-export type GenerateReportInput = z.infer<typeof generateReportInputSchema>;
-
-// Search and filter schemas
-export const expenseSearchInputSchema = z.object({
-  user_id: z.number(),
-  query: z.string().optional(),
-  category_ids: z.array(z.number()).optional(),
-  date_from: z.coerce.date().optional(),
-  date_to: z.coerce.date().optional(),
-  min_amount: z.number().optional(),
-  max_amount: z.number().optional(),
-  status: expenseStatusEnum.optional(),
-  tags: z.array(z.string()).optional(),
-  team_id: z.number().nullable(),
-  page: z.number().int().min(1).default(1),
-  limit: z.number().int().min(1).max(100).default(20)
-});
-
-export type ExpenseSearchInput = z.infer<typeof expenseSearchInputSchema>;
-
-// Analytics schemas
-export const dashboardStatsSchema = z.object({
+// Dashboard Schemas
+export const dashboardDataSchema = z.object({
   total_expenses: z.number(),
-  monthly_total: z.number(),
+  monthly_expenses: z.number(),
   budget_utilization: z.number(),
   pending_approvals: z.number(),
-  category_breakdown: z.array(z.object({
-    category_id: z.number(),
+  recent_expenses: z.array(expenseSchema),
+  category_spending: z.array(z.object({
     category_name: z.string(),
     amount: z.number(),
-    percentage: z.number()
+    budget_amount: z.number().nullable(),
+    color: z.string()
   })),
-  spending_trend: z.array(z.object({
-    date: z.string(),
+  monthly_trend: z.array(z.object({
+    month: z.string(),
     amount: z.number()
+  })),
+  top_categories: z.array(z.object({
+    category_name: z.string(),
+    amount: z.number(),
+    transaction_count: z.number()
   }))
 });
 
-export type DashboardStats = z.infer<typeof dashboardStatsSchema>;
-
-export const getDashboardStatsInputSchema = z.object({
-  user_id: z.number(),
-  date_from: z.coerce.date().optional(),
-  date_to: z.coerce.date().optional(),
-  team_id: z.number().nullable()
-});
-
-export type GetDashboardStatsInput = z.infer<typeof getDashboardStatsInputSchema>;
+export type DashboardData = z.infer<typeof dashboardDataSchema>;

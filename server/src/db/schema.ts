@@ -1,152 +1,135 @@
-import { 
-  serial, 
-  text, 
-  pgTable, 
-  timestamp, 
-  numeric, 
-  integer, 
-  boolean,
-  pgEnum,
-  varchar,
-  date,
-  json
-} from 'drizzle-orm/pg-core';
+import { serial, text, pgTable, timestamp, numeric, integer, boolean, pgEnum, jsonb, date } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
-// Define enums
+// Enums
 export const userRoleEnum = pgEnum('user_role', ['admin', 'manager', 'user']);
-export const expenseStatusEnum = pgEnum('expense_status', ['pending', 'approved', 'rejected']);
-export const notificationTypeEnum = pgEnum('notification_type', ['budget_alert', 'approval_request', 'expense_reminder', 'system_update']);
-export const recurringFrequencyEnum = pgEnum('recurring_frequency', ['daily', 'weekly', 'monthly', 'yearly']);
-export const reportTypeEnum = pgEnum('report_type', ['monthly', 'yearly', 'custom']);
+export const expenseStatusEnum = pgEnum('expense_status', ['draft', 'pending', 'approved', 'rejected', 'paid']);
+export const budgetPeriodEnum = pgEnum('budget_period', ['monthly', 'yearly']);
+export const notificationTypeEnum = pgEnum('notification_type', ['budget_alert', 'approval_request', 'expense_approved', 'expense_rejected', 'system_update']);
 
-// Users table
+// Users Table
 export const usersTable = pgTable('users', {
   id: serial('id').primaryKey(),
-  email: varchar('email', { length: 255 }).notNull().unique(),
+  email: text('email').notNull().unique(),
   password_hash: text('password_hash').notNull(),
-  first_name: varchar('first_name', { length: 100 }).notNull(),
-  last_name: varchar('last_name', { length: 100 }).notNull(),
+  first_name: text('first_name').notNull(),
+  last_name: text('last_name').notNull(),
   role: userRoleEnum('role').notNull().default('user'),
   is_active: boolean('is_active').notNull().default(true),
   email_verified: boolean('email_verified').notNull().default(false),
-  reset_token: text('reset_token'),
-  reset_token_expires: timestamp('reset_token_expires'),
-  created_at: timestamp('created_at').notNull().defaultNow(),
-  updated_at: timestamp('updated_at').notNull().defaultNow()
+  avatar_url: text('avatar_url'),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull()
 });
 
-// Expense categories table
-export const expenseCategoriesTable = pgTable('expense_categories', {
-  id: serial('id').primaryKey(),
-  name: varchar('name', { length: 100 }).notNull(),
-  description: text('description'),
-  color: varchar('color', { length: 7 }).notNull(), // Hex color code
-  icon: varchar('icon', { length: 50 }), // Icon name/class
-  is_active: boolean('is_active').notNull().default(true),
-  created_by: integer('created_by').notNull().references(() => usersTable.id),
-  created_at: timestamp('created_at').notNull().defaultNow(),
-  updated_at: timestamp('updated_at').notNull().defaultNow()
-});
-
-// Teams table
+// Teams Table
 export const teamsTable = pgTable('teams', {
   id: serial('id').primaryKey(),
-  name: varchar('name', { length: 100 }).notNull(),
+  name: text('name').notNull(),
   description: text('description'),
   manager_id: integer('manager_id').notNull().references(() => usersTable.id),
-  is_active: boolean('is_active').notNull().default(true),
-  created_at: timestamp('created_at').notNull().defaultNow(),
-  updated_at: timestamp('updated_at').notNull().defaultNow()
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull()
 });
 
-// Team members table
+// Team Members Table
 export const teamMembersTable = pgTable('team_members', {
   id: serial('id').primaryKey(),
-  team_id: integer('team_id').notNull().references(() => teamsTable.id),
-  user_id: integer('user_id').notNull().references(() => usersTable.id),
-  joined_at: timestamp('joined_at').notNull().defaultNow(),
-  is_active: boolean('is_active').notNull().default(true)
+  team_id: integer('team_id').notNull().references(() => teamsTable.id, { onDelete: 'cascade' }),
+  user_id: integer('user_id').notNull().references(() => usersTable.id, { onDelete: 'cascade' }),
+  joined_at: timestamp('joined_at').defaultNow().notNull()
 });
 
-// Expenses table
+// Categories Table
+export const categoriesTable = pgTable('categories', {
+  id: serial('id').primaryKey(),
+  name: text('name').notNull(),
+  description: text('description'),
+  color: text('color').notNull().default('#8B5CF6'),
+  icon: text('icon'),
+  parent_id: integer('parent_id').references((): any => categoriesTable.id),
+  is_active: boolean('is_active').notNull().default(true),
+  created_at: timestamp('created_at').defaultNow().notNull()
+});
+
+// Expenses Table
 export const expensesTable = pgTable('expenses', {
   id: serial('id').primaryKey(),
   user_id: integer('user_id').notNull().references(() => usersTable.id),
-  category_id: integer('category_id').notNull().references(() => expenseCategoriesTable.id),
-  amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
+  category_id: integer('category_id').notNull().references(() => categoriesTable.id),
+  amount: numeric('amount', { precision: 10, scale: 2 }).notNull(),
   description: text('description').notNull(),
   expense_date: date('expense_date').notNull(),
   receipt_url: text('receipt_url'),
-  tags: text('tags'), // JSON string of tags array
-  status: expenseStatusEnum('status').notNull().default('pending'),
+  tags: jsonb('tags').notNull().default('[]'),
+  status: expenseStatusEnum('status').notNull().default('draft'),
   approved_by: integer('approved_by').references(() => usersTable.id),
   approved_at: timestamp('approved_at'),
   is_recurring: boolean('is_recurring').notNull().default(false),
-  recurring_frequency: recurringFrequencyEnum('recurring_frequency'),
-  next_occurrence: date('next_occurrence'),
+  recurring_pattern: text('recurring_pattern'),
   team_id: integer('team_id').references(() => teamsTable.id),
-  created_at: timestamp('created_at').notNull().defaultNow(),
-  updated_at: timestamp('updated_at').notNull().defaultNow()
+  notes: text('notes'),
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull()
 });
 
-// Budgets table
+// Budgets Table
 export const budgetsTable = pgTable('budgets', {
   id: serial('id').primaryKey(),
   user_id: integer('user_id').notNull().references(() => usersTable.id),
-  category_id: integer('category_id').notNull().references(() => expenseCategoriesTable.id),
-  amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
-  period_start: date('period_start').notNull(),
-  period_end: date('period_end').notNull(),
-  alert_threshold: integer('alert_threshold').notNull().default(80), // Percentage 0-100
+  category_id: integer('category_id').references(() => categoriesTable.id),
+  amount: numeric('amount', { precision: 10, scale: 2 }).notNull(),
+  period: budgetPeriodEnum('period').notNull(),
+  start_date: date('start_date').notNull(),
+  end_date: date('end_date').notNull(),
+  alert_threshold: numeric('alert_threshold', { precision: 5, scale: 2 }).notNull().default('80'),
   is_active: boolean('is_active').notNull().default(true),
-  created_at: timestamp('created_at').notNull().defaultNow(),
-  updated_at: timestamp('updated_at').notNull().defaultNow()
+  created_at: timestamp('created_at').defaultNow().notNull(),
+  updated_at: timestamp('updated_at').defaultNow().notNull()
 });
 
-// Notifications table
+// Notifications Table
 export const notificationsTable = pgTable('notifications', {
   id: serial('id').primaryKey(),
   user_id: integer('user_id').notNull().references(() => usersTable.id),
   type: notificationTypeEnum('type').notNull(),
-  title: varchar('title', { length: 255 }).notNull(),
+  title: text('title').notNull(),
   message: text('message').notNull(),
   is_read: boolean('is_read').notNull().default(false),
-  metadata: json('metadata'), // Additional data as JSON
-  created_at: timestamp('created_at').notNull().defaultNow()
+  metadata: jsonb('metadata'),
+  created_at: timestamp('created_at').defaultNow().notNull()
 });
 
-// Reports table
-export const reportsTable = pgTable('reports', {
+// Password Reset Tokens Table
+export const passwordResetTokensTable = pgTable('password_reset_tokens', {
   id: serial('id').primaryKey(),
   user_id: integer('user_id').notNull().references(() => usersTable.id),
-  type: reportTypeEnum('type').notNull(),
-  title: varchar('title', { length: 255 }).notNull(),
-  filters: json('filters'), // Search filters used to generate report
-  data: json('data'), // Generated report data
-  generated_at: timestamp('generated_at').notNull().defaultNow(),
-  expires_at: timestamp('expires_at') // Optional expiration for temporary reports
+  token: text('token').notNull().unique(),
+  expires_at: timestamp('expires_at').notNull(),
+  used: boolean('used').notNull().default(false),
+  created_at: timestamp('created_at').defaultNow().notNull()
 });
 
-// Define relations
-export const usersRelations = relations(usersTable, ({ many }) => ({
+// Email Verification Tokens Table
+export const emailVerificationTokensTable = pgTable('email_verification_tokens', {
+  id: serial('id').primaryKey(),
+  user_id: integer('user_id').notNull().references(() => usersTable.id),
+  token: text('token').notNull().unique(),
+  expires_at: timestamp('expires_at').notNull(),
+  used: boolean('used').notNull().default(false),
+  created_at: timestamp('created_at').defaultNow().notNull()
+});
+
+// Relations
+export const usersRelations = relations(usersTable, ({ many, one }) => ({
   expenses: many(expensesTable),
   budgets: many(budgetsTable),
   notifications: many(notificationsTable),
-  reports: many(reportsTable),
-  createdCategories: many(expenseCategoriesTable),
   managedTeams: many(teamsTable),
   teamMemberships: many(teamMembersTable),
-  approvedExpenses: many(expensesTable)
-}));
-
-export const expenseCategoriesRelations = relations(expenseCategoriesTable, ({ one, many }) => ({
-  creator: one(usersTable, {
-    fields: [expenseCategoriesTable.created_by],
-    references: [usersTable.id]
-  }),
-  expenses: many(expensesTable),
-  budgets: many(budgetsTable)
+  passwordResetTokens: many(passwordResetTokensTable),
+  emailVerificationTokens: many(emailVerificationTokensTable),
+  approvedExpenses: many(expensesTable, { relationName: 'approver' })
 }));
 
 export const teamsRelations = relations(teamsTable, ({ one, many }) => ({
@@ -169,18 +152,30 @@ export const teamMembersRelations = relations(teamMembersTable, ({ one }) => ({
   })
 }));
 
+export const categoriesRelations = relations(categoriesTable, ({ one, many }) => ({
+  parent: one(categoriesTable, {
+    fields: [categoriesTable.parent_id],
+    references: [categoriesTable.id],
+    relationName: 'parentCategory'
+  }),
+  children: many(categoriesTable, { relationName: 'parentCategory' }),
+  expenses: many(expensesTable),
+  budgets: many(budgetsTable)
+}));
+
 export const expensesRelations = relations(expensesTable, ({ one }) => ({
   user: one(usersTable, {
     fields: [expensesTable.user_id],
     references: [usersTable.id]
   }),
-  category: one(expenseCategoriesTable, {
+  category: one(categoriesTable, {
     fields: [expensesTable.category_id],
-    references: [expenseCategoriesTable.id]
+    references: [categoriesTable.id]
   }),
   approver: one(usersTable, {
     fields: [expensesTable.approved_by],
-    references: [usersTable.id]
+    references: [usersTable.id],
+    relationName: 'approver'
   }),
   team: one(teamsTable, {
     fields: [expensesTable.team_id],
@@ -193,9 +188,9 @@ export const budgetsRelations = relations(budgetsTable, ({ one }) => ({
     fields: [budgetsTable.user_id],
     references: [usersTable.id]
   }),
-  category: one(expenseCategoriesTable, {
+  category: one(categoriesTable, {
     fields: [budgetsTable.category_id],
-    references: [expenseCategoriesTable.id]
+    references: [categoriesTable.id]
   })
 }));
 
@@ -206,9 +201,16 @@ export const notificationsRelations = relations(notificationsTable, ({ one }) =>
   })
 }));
 
-export const reportsRelations = relations(reportsTable, ({ one }) => ({
+export const passwordResetTokensRelations = relations(passwordResetTokensTable, ({ one }) => ({
   user: one(usersTable, {
-    fields: [reportsTable.user_id],
+    fields: [passwordResetTokensTable.user_id],
+    references: [usersTable.id]
+  })
+}));
+
+export const emailVerificationTokensRelations = relations(emailVerificationTokensTable, ({ one }) => ({
+  user: one(usersTable, {
+    fields: [emailVerificationTokensTable.user_id],
     references: [usersTable.id]
   })
 }));
@@ -217,14 +219,14 @@ export const reportsRelations = relations(reportsTable, ({ one }) => ({
 export type User = typeof usersTable.$inferSelect;
 export type NewUser = typeof usersTable.$inferInsert;
 
-export type ExpenseCategory = typeof expenseCategoriesTable.$inferSelect;
-export type NewExpenseCategory = typeof expenseCategoriesTable.$inferInsert;
-
 export type Team = typeof teamsTable.$inferSelect;
 export type NewTeam = typeof teamsTable.$inferInsert;
 
 export type TeamMember = typeof teamMembersTable.$inferSelect;
 export type NewTeamMember = typeof teamMembersTable.$inferInsert;
+
+export type Category = typeof categoriesTable.$inferSelect;
+export type NewCategory = typeof categoriesTable.$inferInsert;
 
 export type Expense = typeof expensesTable.$inferSelect;
 export type NewExpense = typeof expensesTable.$inferInsert;
@@ -235,17 +237,15 @@ export type NewBudget = typeof budgetsTable.$inferInsert;
 export type Notification = typeof notificationsTable.$inferSelect;
 export type NewNotification = typeof notificationsTable.$inferInsert;
 
-export type Report = typeof reportsTable.$inferSelect;
-export type NewReport = typeof reportsTable.$inferInsert;
-
 // Export all tables for proper query building
 export const tables = {
   users: usersTable,
-  expenseCategories: expenseCategoriesTable,
   teams: teamsTable,
   teamMembers: teamMembersTable,
+  categories: categoriesTable,
   expenses: expensesTable,
   budgets: budgetsTable,
   notifications: notificationsTable,
-  reports: reportsTable
+  passwordResetTokens: passwordResetTokensTable,
+  emailVerificationTokens: emailVerificationTokensTable
 };
