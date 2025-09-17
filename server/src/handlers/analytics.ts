@@ -1,22 +1,133 @@
 import { type ExpenseAnalytics, type ReportInput } from '../schema';
+import { db } from '../db';
+import { expensesTable, categoriesTable, budgetsTable, usersTable, teamsTable } from '../db/schema';
+import { eq, and, gte, lte, sum, count, sql, SQL } from 'drizzle-orm';
 
 export async function getExpenseAnalytics(userId: number, userRole: string, startDate: Date, endDate: Date): Promise<ExpenseAnalytics> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is to generate comprehensive expense analytics
-    // with category breakdowns, spending trends, and budget comparisons.
-    return Promise.resolve({
-        total_amount: 0,
-        expense_count: 0,
-        avg_expense: 0,
-        category_breakdown: [],
-        monthly_trend: [],
-        budget_vs_actual: {
-            budget_amount: 0,
-            actual_amount: 0,
-            variance: 0,
-            variance_percentage: 0
+  try {
+    // Build base conditions for filtering expenses
+    const conditions: SQL<unknown>[] = [];
+    
+    // Date range filter - convert Date objects to date strings
+    const startDateStr = startDate.toISOString().split('T')[0];
+    const endDateStr = endDate.toISOString().split('T')[0];
+    conditions.push(gte(expensesTable.expense_date, startDateStr));
+    conditions.push(lte(expensesTable.expense_date, endDateStr));
+    
+    // Role-based filtering
+    if (userRole !== 'admin') {
+      if (userRole === 'manager') {
+        // Managers can see their own expenses + their team's expenses
+        const teamQuery = db.select({ id: teamsTable.id })
+          .from(teamsTable)
+          .where(eq(teamsTable.manager_id, userId));
+        
+        const teamIds = await teamQuery.execute();
+        const teamIdList = teamIds.map(t => t.id);
+        
+        if (teamIdList.length > 0) {
+          conditions.push(
+            sql`(${expensesTable.user_id} = ${userId} OR ${expensesTable.team_id} IN (${teamIdList.map(id => `${id}`).join(',')}))`
+          );
+        } else {
+          conditions.push(eq(expensesTable.user_id, userId));
         }
-    } as ExpenseAnalytics);
+      } else {
+        // Regular users can only see their own expenses
+        conditions.push(eq(expensesTable.user_id, userId));
+      }
+    }
+
+    // 1. Get basic expense statistics
+    const basicStatsQuery = db.select({
+      total_amount: sum(expensesTable.amount),
+      expense_count: count(expensesTable.id),
+    })
+      .from(expensesTable)
+      .where(and(...conditions));
+
+    const basicStats = await basicStatsQuery.execute();
+    const totalAmount = parseFloat(basicStats[0]?.total_amount || '0');
+    const expenseCount = basicStats[0]?.expense_count || 0;
+    const avgExpense = expenseCount > 0 ? totalAmount / expenseCount : 0;
+
+    // 2. Get category breakdown
+    const categoryBreakdownQuery = db.select({
+      category_name: categoriesTable.name,
+      amount: sum(expensesTable.amount),
+    })
+      .from(expensesTable)
+      .innerJoin(categoriesTable, eq(expensesTable.category_id, categoriesTable.id))
+      .where(and(...conditions))
+      .groupBy(categoriesTable.name);
+
+    const categoryResults = await categoryBreakdownQuery.execute();
+    const categoryBreakdown = categoryResults.map(result => ({
+      category_name: result.category_name,
+      amount: parseFloat(result.amount || '0'),
+      percentage: totalAmount > 0 ? (parseFloat(result.amount || '0') / totalAmount) * 100 : 0
+    }));
+
+    // 3. Get monthly trend
+    const monthlyTrendQuery = db.select({
+      month: sql<string>`TO_CHAR(${expensesTable.expense_date}, 'YYYY-MM')`,
+      amount: sum(expensesTable.amount),
+    })
+      .from(expensesTable)
+      .where(and(...conditions))
+      .groupBy(sql`TO_CHAR(${expensesTable.expense_date}, 'YYYY-MM')`)
+      .orderBy(sql`TO_CHAR(${expensesTable.expense_date}, 'YYYY-MM')`);
+
+    const monthlyResults = await monthlyTrendQuery.execute();
+    const monthlyTrend = monthlyResults.map(result => ({
+      month: result.month,
+      amount: parseFloat(result.amount || '0')
+    }));
+
+    // 4. Get budget vs actual comparison
+    // For role-based budget access
+    const budgetConditions: SQL<unknown>[] = [];
+    
+    if (userRole !== 'admin') {
+      budgetConditions.push(eq(budgetsTable.user_id, userId));
+    }
+    
+    // Add date overlap conditions for active budgets - convert dates to strings
+    budgetConditions.push(
+      lte(budgetsTable.start_date, endDateStr),
+      gte(budgetsTable.end_date, startDateStr),
+      eq(budgetsTable.is_active, true)
+    );
+
+    const budgetQuery = db.select({
+      budget_amount: sum(budgetsTable.amount),
+    })
+      .from(budgetsTable)
+      .where(and(...budgetConditions));
+
+    const budgetResults = await budgetQuery.execute();
+    const budgetAmount = parseFloat(budgetResults[0]?.budget_amount || '0');
+    
+    const variance = totalAmount - budgetAmount;
+    const variancePercentage = budgetAmount > 0 ? (variance / budgetAmount) * 100 : 0;
+
+    return {
+      total_amount: totalAmount,
+      expense_count: expenseCount,
+      avg_expense: avgExpense,
+      category_breakdown: categoryBreakdown,
+      monthly_trend: monthlyTrend,
+      budget_vs_actual: {
+        budget_amount: budgetAmount,
+        actual_amount: totalAmount,
+        variance: variance,
+        variance_percentage: variancePercentage
+      }
+    };
+  } catch (error) {
+    console.error('Expense analytics generation failed:', error);
+    throw error;
+  }
 }
 
 export async function generateReport(input: ReportInput, userId: number, userRole: string): Promise<{

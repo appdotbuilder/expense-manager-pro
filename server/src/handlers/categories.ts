@@ -1,19 +1,43 @@
+import { db } from '../db';
+import { categoriesTable } from '../db/schema';
 import { type CreateCategoryInput, type Category } from '../schema';
+import { eq } from 'drizzle-orm';
 
 export async function createCategory(input: CreateCategoryInput): Promise<Category> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is to create new expense categories with hierarchical support,
-    // custom colors, icons, and proper validation for category names.
-    return Promise.resolve({
-        id: 0,
+  try {
+    // Validate parent category exists if parent_id is provided
+    if (input.parent_id) {
+      const parentCategory = await db.select()
+        .from(categoriesTable)
+        .where(eq(categoriesTable.id, input.parent_id))
+        .execute();
+
+      if (parentCategory.length === 0) {
+        throw new Error('Parent category not found');
+      }
+
+      if (!parentCategory[0].is_active) {
+        throw new Error('Cannot create subcategory under inactive parent');
+      }
+    }
+
+    // Insert category record
+    const result = await db.insert(categoriesTable)
+      .values({
         name: input.name,
         description: input.description || null,
         color: input.color,
         icon: input.icon || null,
-        parent_id: input.parent_id || null,
-        is_active: true,
-        created_at: new Date()
-    } as Category);
+        parent_id: input.parent_id || null
+      })
+      .returning()
+      .execute();
+
+    return result[0];
+  } catch (error) {
+    console.error('Category creation failed:', error);
+    throw error;
+  }
 }
 
 export async function getCategories(): Promise<Category[]> {

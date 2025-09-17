@@ -1,22 +1,61 @@
+import { db } from '../db';
+import { budgetsTable, usersTable, categoriesTable, type NewBudget } from '../db/schema';
 import { type CreateBudgetInput, type Budget } from '../schema';
+import { eq } from 'drizzle-orm';
 
 export async function createBudget(input: CreateBudgetInput, userId: number): Promise<Budget> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is to create category-wise or overall budgets with
-    // alert thresholds, period settings, and automatic notifications setup.
-    return Promise.resolve({
-        id: 0,
-        user_id: userId,
-        category_id: input.category_id || null,
-        amount: input.amount,
-        period: input.period,
-        start_date: input.start_date,
-        end_date: input.end_date,
-        alert_threshold: input.alert_threshold,
-        is_active: true,
-        created_at: new Date(),
-        updated_at: new Date()
-    } as Budget);
+    try {
+        // Verify that the user exists
+        const userExists = await db.select({ id: usersTable.id })
+            .from(usersTable)
+            .where(eq(usersTable.id, userId))
+            .execute();
+
+        if (userExists.length === 0) {
+            throw new Error(`User with id ${userId} does not exist`);
+        }
+
+        // If category_id is provided, verify that the category exists
+        if (input.category_id) {
+            const categoryExists = await db.select({ id: categoriesTable.id })
+                .from(categoriesTable)
+                .where(eq(categoriesTable.id, input.category_id))
+                .execute();
+
+            if (categoryExists.length === 0) {
+                throw new Error(`Category with id ${input.category_id} does not exist`);
+            }
+        }
+
+        // Insert budget record
+        const budgetData: NewBudget = {
+            user_id: userId,
+            category_id: input.category_id,
+            amount: input.amount.toString(), // Convert number to string for numeric column
+            period: input.period,
+            start_date: input.start_date.toISOString().split('T')[0], // Convert Date to string (YYYY-MM-DD)
+            end_date: input.end_date.toISOString().split('T')[0], // Convert Date to string (YYYY-MM-DD)
+            alert_threshold: input.alert_threshold.toString() // Convert number to string for numeric column
+        };
+
+        const result = await db.insert(budgetsTable)
+            .values(budgetData)
+            .returning()
+            .execute();
+
+        // Convert numeric fields and dates back to proper types before returning
+        const budget = result[0];
+        return {
+            ...budget,
+            amount: parseFloat(budget.amount), // Convert string back to number
+            alert_threshold: parseFloat(budget.alert_threshold), // Convert string back to number
+            start_date: new Date(budget.start_date), // Convert string back to Date
+            end_date: new Date(budget.end_date) // Convert string back to Date
+        };
+    } catch (error) {
+        console.error('Budget creation failed:', error);
+        throw error;
+    }
 }
 
 export async function getBudgets(userId: number): Promise<Budget[]> {

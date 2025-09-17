@@ -1,80 +1,218 @@
+import { db } from '../db';
+import { notificationsTable } from '../db/schema';
 import { type CreateNotificationInput, type Notification } from '../schema';
+import { eq, and, desc, count } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 
 export async function createNotification(input: CreateNotificationInput): Promise<Notification> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is to create system notifications with proper
-    // categorization, metadata storage, and delivery tracking.
-    return Promise.resolve({
-        id: 0,
+  try {
+    const result = await db.insert(notificationsTable)
+      .values({
         user_id: input.user_id,
         type: input.type,
         title: input.title,
         message: input.message,
-        is_read: false,
-        metadata: input.metadata || null,
-        created_at: new Date()
-    } as Notification);
+        metadata: input.metadata || null
+      })
+      .returning()
+      .execute();
+
+    const notification = result[0];
+    return {
+      ...notification,
+      metadata: notification.metadata as Record<string, any> | null
+    };
+  } catch (error) {
+    console.error('Notification creation failed:', error);
+    throw error;
+  }
 }
 
 export async function getNotifications(userId: number, unreadOnly: boolean = false): Promise<Notification[]> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is to fetch user notifications with filtering
-    // for read/unread status and proper pagination support.
-    return Promise.resolve([]);
+  try {
+    const conditions: SQL<unknown>[] = [eq(notificationsTable.user_id, userId)];
+
+    if (unreadOnly) {
+      conditions.push(eq(notificationsTable.is_read, false));
+    }
+
+    const results = await db.select()
+      .from(notificationsTable)
+      .where(and(...conditions))
+      .orderBy(desc(notificationsTable.created_at))
+      .execute();
+
+    return results.map(notification => ({
+      ...notification,
+      metadata: notification.metadata as Record<string, any> | null
+    }));
+  } catch (error) {
+    console.error('Get notifications failed:', error);
+    throw error;
+  }
 }
 
 export async function markNotificationAsRead(notificationId: number, userId: number): Promise<{ success: boolean }> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is to mark specific notifications as read
-    // with proper authorization ensuring users can only modify their notifications.
-    return Promise.resolve({ success: true });
+  try {
+    const result = await db.update(notificationsTable)
+      .set({ is_read: true })
+      .where(and(
+        eq(notificationsTable.id, notificationId),
+        eq(notificationsTable.user_id, userId)
+      ))
+      .returning({ id: notificationsTable.id })
+      .execute();
+
+    return { success: result.length > 0 };
+  } catch (error) {
+    console.error('Mark notification as read failed:', error);
+    throw error;
+  }
 }
 
 export async function markAllNotificationsAsRead(userId: number): Promise<{ success: boolean; count: number }> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is to mark all user notifications as read
-    // and return count of notifications updated.
-    return Promise.resolve({ success: true, count: 0 });
+  try {
+    const result = await db.update(notificationsTable)
+      .set({ is_read: true })
+      .where(and(
+        eq(notificationsTable.user_id, userId),
+        eq(notificationsTable.is_read, false)
+      ))
+      .returning({ id: notificationsTable.id })
+      .execute();
+
+    return { success: true, count: result.length };
+  } catch (error) {
+    console.error('Mark all notifications as read failed:', error);
+    throw error;
+  }
 }
 
 export async function deleteNotification(notificationId: number, userId: number): Promise<{ success: boolean }> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is to delete notifications with proper authorization
-    // ensuring users can only delete their own notifications.
-    return Promise.resolve({ success: true });
+  try {
+    const result = await db.delete(notificationsTable)
+      .where(and(
+        eq(notificationsTable.id, notificationId),
+        eq(notificationsTable.user_id, userId)
+      ))
+      .returning({ id: notificationsTable.id })
+      .execute();
+
+    return { success: result.length > 0 };
+  } catch (error) {
+    console.error('Delete notification failed:', error);
+    throw error;
+  }
 }
 
 export async function getUnreadCount(userId: number): Promise<{ count: number }> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is to get count of unread notifications
-    // for displaying notification badges and indicators.
-    return Promise.resolve({ count: 0 });
+  try {
+    const result = await db.select({ count: count() })
+      .from(notificationsTable)
+      .where(and(
+        eq(notificationsTable.user_id, userId),
+        eq(notificationsTable.is_read, false)
+      ))
+      .execute();
+
+    return { count: result[0].count };
+  } catch (error) {
+    console.error('Get unread count failed:', error);
+    throw error;
+  }
 }
 
 export async function sendBudgetAlert(userId: number, budgetId: number, utilizationPercentage: number): Promise<void> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is to send automated budget threshold alerts
-    // when spending exceeds configured alert percentages.
-    return Promise.resolve();
+  try {
+    const title = 'Budget Alert';
+    const message = `Your budget is ${utilizationPercentage}% utilized. Consider reviewing your spending.`;
+    const metadata = {
+      budget_id: budgetId,
+      utilization_percentage: utilizationPercentage,
+      alert_type: 'budget_threshold'
+    };
+
+    await createNotification({
+      user_id: userId,
+      type: 'budget_alert',
+      title,
+      message,
+      metadata
+    });
+  } catch (error) {
+    console.error('Send budget alert failed:', error);
+    throw error;
+  }
 }
 
 export async function sendApprovalRequest(expenseId: number, managerId: number, submitterName: string, amount: number): Promise<void> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is to send expense approval requests to managers
-    // with expense details and direct approval links.
-    return Promise.resolve();
+  try {
+    const title = 'Expense Approval Request';
+    const message = `${submitterName} has submitted an expense of $${amount.toFixed(2)} for approval.`;
+    const metadata = {
+      expense_id: expenseId,
+      submitter_name: submitterName,
+      amount,
+      action_type: 'approval_request'
+    };
+
+    await createNotification({
+      user_id: managerId,
+      type: 'approval_request',
+      title,
+      message,
+      metadata
+    });
+  } catch (error) {
+    console.error('Send approval request failed:', error);
+    throw error;
+  }
 }
 
 export async function sendApprovalResult(expenseId: number, userId: number, status: 'approved' | 'rejected', approverName: string, notes?: string): Promise<void> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is to notify users about expense approval results
-    // with approver information and any additional notes or feedback.
-    return Promise.resolve();
+  try {
+    const title = `Expense ${status.charAt(0).toUpperCase() + status.slice(1)}`;
+    let message = `Your expense has been ${status} by ${approverName}.`;
+    if (notes) {
+      message += ` Notes: ${notes}`;
+    }
+
+    const metadata = {
+      expense_id: expenseId,
+      status,
+      approver_name: approverName,
+      notes: notes || null,
+      action_type: 'approval_result'
+    };
+
+    await createNotification({
+      user_id: userId,
+      type: status === 'approved' ? 'expense_approved' : 'expense_rejected',
+      title,
+      message,
+      metadata
+    });
+  } catch (error) {
+    console.error('Send approval result failed:', error);
+    throw error;
+  }
 }
 
 export async function sendSystemUpdate(userIds: number[], title: string, message: string, metadata?: any): Promise<void> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is to broadcast system updates and announcements
-    // to multiple users with support for rich metadata and formatting.
-    return Promise.resolve();
+  try {
+    const notifications = userIds.map(userId => ({
+      user_id: userId,
+      type: 'system_update' as const,
+      title,
+      message,
+      metadata: metadata || null
+    }));
+
+    await db.insert(notificationsTable)
+      .values(notifications)
+      .execute();
+  } catch (error) {
+    console.error('Send system update failed:', error);
+    throw error;
+  }
 }
